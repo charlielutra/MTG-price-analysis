@@ -17,7 +17,6 @@ def drop_junk_features(data: pd.DataFrame) -> pd.DataFrame:
     "lang",
     "attraction_lights",
 
-
     # Others that need to gtfo:
     "games",
 
@@ -35,6 +34,11 @@ def drop_junk_features(data: pd.DataFrame) -> pd.DataFrame:
     "tcgplayer_etched_id",
     "mtgo_foil_id",
 
+    "resource_id",
+    "variation_of",
+    "flavor_name",
+    "printed_type_line",
+    "printed_text",
 
     # Various URIs 
     "uri", 
@@ -61,6 +65,8 @@ def drop_junk_features(data: pd.DataFrame) -> pd.DataFrame:
     "preview",
     "highres_image", 
     "all_parts",
+    "image_updated_at",
+
 
     # Stuff with <1000 datapoints
     "card_faces",
@@ -186,7 +192,8 @@ def engineer_legalities(data: pd.DataFrame):
     print("Legacy - should be replaced by sf.remove_legalities")
 
     formats = ['standard', 'future', 'pioneer', 'modern', 'legacy', 'pauper', 'vintage', 'penny', 
-           'commander', 'oathbreaker', 'paupercommander', 'duel', 'oldschool', 'premodern', 'predh',]
+           'commander', 'oathbreaker', 'paupercommander', 'duel', 'oldschool', 'premodern', 'predh',
+           "competitivebrawl", "tlr"]
     engineered_data = data.copy()
     text_columns = engineered_data.loc[:,formats]
     bin_columns = (text_columns=="legal").astype("int")
@@ -195,7 +202,8 @@ def engineer_legalities(data: pd.DataFrame):
 
 def remove_legalities(data: pd.DataFrame):
     formats = ['standard', 'future', 'pioneer', 'modern', 'legacy', 'pauper', 'vintage', 'penny', 
-           'commander', 'oathbreaker', 'paupercommander', 'duel', 'oldschool', 'premodern', 'predh',]
+           'commander', 'oathbreaker', 'paupercommander', 'duel', 'oldschool', 'premodern', 'predh', 
+           "competitivebrawl", "tlr"]
     engineered_data = data.copy()
 
     return engineered_data.drop(columns=formats)
@@ -230,15 +238,35 @@ def abnormal_layout(data: pd.DataFrame) -> pd.DataFrame:
 
 
 def ordinate_rarities(data: pd.DataFrame) -> pd.DataFrame:
+    """ 
+    Ordinate the "rarity" field into numbers representative of the card's rarity.
+    """
+
+    """
+    "rarity" can take the following values: common, uncommon, rare, mythic, special, or bonus.
+    Turn these into numbers according to mtgwiki: a booster pack contains 11 C, 3 U, and one R/M.
+    Therefore use the inverse of this as the rarity: C 1/11, U 1/3, R 8/7, M 8/1 = 8.
+    (In Standard-only cards, special and bonus don't exist)
+    """
+
+    # integer_rarities_dict = {
+    #     "common": 1, 
+    #     "uncommon": 2,
+    #     "rare": 3, 
+    #     "mythic": 4, 
+    #     "special": 5, 
+    #     "bonus": 5, 
+    # }
 
     ordinate_rarities_dict = {
-        "common": 1, 
-        "uncommon": 2,
-        "rare": 3, 
-        "mythic": 4, 
-        "special": 5, 
-        "bonus": 5, 
+        "common": 1/11, 
+        "uncommon": 1/3,
+        "rare": 8/7, 
+        "mythic": 8., 
+        # "special": , 
+        # "bonus": , 
     }
+
     engineered_data = data.copy()
     ordinate_rarity = [ordinate_rarities_dict[x] for x in engineered_data["rarity"]]
     engineered_data = engineered_data.drop(columns="rarity")
@@ -246,65 +274,75 @@ def ordinate_rarities(data: pd.DataFrame) -> pd.DataFrame:
     return engineered_data
 
 
-def cut_subtypes(data: pd.DataFrame) -> pd.DataFrame:
+def onehot_cardtypes(data: pd.DataFrame) -> pd.DataFrame:
+    """
+    "typeline" is a text field eg. Legendary Creature - Human Soldier.
+    We want to: 
+        Split text by spaces
+        Discard  subtypes (ie. the dash and everything after it)
+        One-hot encode each card supertype and type (Legendary, Creature, Artifact etc.)
+    """
+
     engineered_data = data.copy()
     type_lines = engineered_data.type_line
 
     types = type_lines.copy()
+    
+    # types = engineered_data["type_line"].str.partition(" —")[0] # Discard everything after the first dash
+    types = engineered_data["type_line"].str.split(r"\s*(?://|—|-)\s*", n=1).str[0] # More complicated version that also handles DFCs
+    types = types.str.split() # Split by spaces
+
+    # engineered_data["types"] = types
+
+    """
+    Older version:
     contains_dash = types.str.contains("—") # Create new boolean series, contains_dash: = 1 if "-" present (ie. if there are subtypes) ; = 0 otherwise
     types[contains_dash] = type_lines[contains_dash].str.rpartition(" —")[0] # For lines where contains_dash==1: Cut off the string after " -" is seen (ie. remove the subtypes)
     # Now types contains eg. "Legendary Creature", "Instant", "Creature", "Artifact Creature" etc.
 
     types = types.str.split(" ") # Turn this into a list split by spaces: -> each entry is ["Legendary","Creature"] or ["Instant"] or ... etc.
+    """
+    
+    # Now extract all unique values:
+    all_categories = set(cat for sublist in types for cat in sublist)
+    print(all_categories)
 
+    # for category in all_categories:
+        # engineered_data[category] = engineered_data.type_line.apply(lambda x: 1 if category in x else 0)
+
+    for category in all_categories:
+        engineered_data[category] = types.apply(
+            lambda x: int(category in x)
+        )
+
+    # Drop the original 'type_line' column
     engineered_data = engineered_data.drop(columns="type_line")
-    engineered_data["types"] = types
 
-    return engineered_data
-
-
-def convert_variable_to_numbers(data, column_name, data_type):
-    engineered_data = data.copy()
-
-    new_column = engineered_data[column_name].notnull().astype(data_type)
-    engineered_data = engineered_data.drop(columns=column_name).join(new_column)
     return engineered_data
 
 
 def convert_all_to_numbers(data = pd.DataFrame) -> pd.DataFrame:
-    # This is currently bugged.
-    # Problem is about null values in columns. 
-    # eg. some cards don't have a listed cmc (?)
-    # So running convert_variable_to_numbers doesn't work for this. 
-    # I tried using notna() in convert_variable_to_numbers:
-        # new_column = engineered_data[column_name].NOTNA().astype(data_type)
-    # But then I think this also removed all the False entries from the bool ones??
-    # Come back to this
-
 
     engineered_data = data.copy()
 
-    #engineered_data = convert_variable_to_numbers(engineered_data, "eur", "float64")
-    #engineered_data = convert_variable_to_numbers(engineered_data, "cmc", "int")
-
-
-    bool_vars = ["foil","booster"
+    bool_vars = ["foil","booster", "game_changer", "variation"
                 ]
                 # "standard","future","pioneer","modern","legacy","pauper","vintage",
                 # "penny","commander","oathbreaker","paupercommander","duel",
                 # "oldschool","premodern","predh"
- 
+
     for column_name in bool_vars:
-        engineered_data = convert_variable_to_numbers(engineered_data, column_name, "int")
+        engineered_data[column_name] = (
+            engineered_data[column_name].astype("Int64")
+        )
 
+    numeric_vars = ["eur","cmc","power","toughness"]
 
-    num_vars = ["eur","cmc","power","toughness"]
-
-    for column_name in num_vars:
-        engineered_data = convert_variable_to_numbers(engineered_data, column_name, "float64")
+    for column_name in numeric_vars:
+        new_column = pd.to_numeric(engineered_data[column_name], errors="coerce")
+        engineered_data = engineered_data.drop(columns=column_name).join(new_column)
 
     return engineered_data
-
 
 
 #def add_desired_features(data = pd.DataFrame) -> pd.DataFrame:
@@ -316,4 +354,9 @@ def convert_all_to_numbers(data = pd.DataFrame) -> pd.DataFrame:
 
 
 
+"""
+Feature engineering I'd like to do:
+BIG ONE: ADD SCRYFALL TAGS. 
+
+"""
 
