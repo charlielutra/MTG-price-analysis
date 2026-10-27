@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 
 def expand_dict_features(data: pd.DataFrame) -> pd.DataFrame:
     engineered_data = data.copy()
@@ -237,7 +238,7 @@ def abnormal_layout(data: pd.DataFrame) -> pd.DataFrame:
     return engineered_data.drop(layout).join(is_abnormal)
 
 
-def ordinate_rarities(data: pd.DataFrame) -> pd.DataFrame:
+def ordinate_rarities(data: pd.DataFrame, drop_orig=True) -> pd.DataFrame:
     """ 
     Ordinate the "rarity" field into numbers representative of the card's rarity.
     """
@@ -269,8 +270,11 @@ def ordinate_rarities(data: pd.DataFrame) -> pd.DataFrame:
 
     engineered_data = data.copy()
     ordinate_rarity = [ordinate_rarities_dict[x] for x in engineered_data["rarity"]]
-    engineered_data = engineered_data.drop(columns="rarity")
     engineered_data["ordinate_rarity"] = ordinate_rarity
+
+    if drop_orig:
+        engineered_data = engineered_data.drop(columns="rarity")
+        
     return engineered_data
 
 
@@ -352,10 +356,41 @@ def convert_all_to_numbers(data = pd.DataFrame) -> pd.DataFrame:
 
     #colors = 
 
+def create_log_eur(data = pd.DataFrame, drop_orig=True) -> pd.DataFrame:
+    """
+    Replace price in Euros ("eur") to its log10 value ("log_eur") - this creates a much more learnable distribution.
+    """
+    engineered_data = data.copy()
+
+    log_eur = np.log10(engineered_data["eur"])
+    # print(log_eur)
+    engineered_data["log_eur"] = log_eur
+
+    if drop_orig:
+        engineered_data = engineered_data.drop(columns="eur")
+
+    return engineered_data
+
+
 
 
 """
+More preprocessing to do: 
+Onehot encode set_type: 
+{'commander',
+ 'core',
+ 'draft_innovation',
+ 'duel_deck',
+ 'eternal',
+ 'expansion',
+ 'masters',
+ 'promo',
+ 'starter'}
+
+...At some point I really do need to move to default_cards, not oracle cards.
+
 Feature engineering I'd like to do:
+
 BIG ONE: ADD SCRYFALL TAGS. 
 
 """
